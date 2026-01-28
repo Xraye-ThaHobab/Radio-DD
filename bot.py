@@ -13,7 +13,7 @@ intents.voice_states = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 
-TOKEN = "dBvnWnnQoWuh4xJYzEsCPMdwuBX19oVx"
+TOKEN = "MTMyMTI3MjUzMzkxNTI3MTI4OA.GaOO84.unWRq02xGOGTlxUGBu3tgW9f6pviGI1nfHskew"
 
 # ===== Radio List =====
 RADIOS = {
