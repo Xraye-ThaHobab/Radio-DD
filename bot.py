@@ -1,19 +1,21 @@
-# bot.py
-# Python 3.10+
-# discord.py 2.x
-
-import asyncio
 import discord
+from discord.ext import commands, tasks
 from discord import app_commands
-from discord.ext import commands
+from discord.ui import Select, View
+from discord import FFmpegPCMAudio
+import asyncio
+
+# ===== Bot setup =====
+intents = discord.Intents.default()
+intents.message_content = True
+intents.voice_states = True
+
+bot = commands.Bot(command_prefix="!", intents=intents)
+tree = bot.tree
 
 TOKEN = "dBvnWnnQoWuh4xJYzEsCPMdwuBX19oVx"
 
-INTENTS = discord.Intents.default()
-INTENTS.voice_states = True
-
-BOT_FOOTER = "made with 🧠&🩷 by apaxray"
-
+# ===== Radio List =====
 RADIOS = {
     "🤠 Country Vibes": "https://radio.9craft.ir:7443/country",
     "🔥 HipHop Mood": "https://radio.9craft.ir:7443/hiphop",
@@ -25,156 +27,64 @@ RADIOS = {
     "🎤 Rap Farsi": "https://radio.9craft.ir:7443/prap",
 }
 
-FFMPEG_OPTIONS = {
-    "before_options": (
-        "-reconnect 1 "
-        "-reconnect_streamed 1 "
-        "-reconnect_delay_max 5"
-    ),
-    "options": "-vn",
-}
-
-
-class RadioSelect(discord.ui.Select):
+# ===== Select Menu =====
+class RadioSelect(Select):
     def __init__(self):
         options = [
-            discord.SelectOption(
-                label=name,
-                description="Bزن بریم یه vibe خفن 🎧",
-                emoji=name.split()[0],
-            )
-            for name in RADIOS.keys()
+            discord.SelectOption(label=name, value=url)
+            for name, url in RADIOS.items()
         ]
-
-        super().__init__(
-            placeholder="🎶 Ye radio entekhab kon...",
-            min_values=1,
-            max_values=1,
-            options=options,
-        )
+        super().__init__(placeholder="🎶 Radio ha ro entekhab kon ...", min_values=1, max_values=1, options=options)
 
     async def callback(self, interaction: discord.Interaction):
         user = interaction.user
-        voice_state = user.voice
-
-        embed = discord.Embed(color=0x2F3136)
-
-        if not voice_state or not voice_state.channel:
-            embed.title = "❌ Voice Channel Nisti"
-            embed.description = "اول بیا توی یه ویس، بعد radio entekhab kon 😅"
-            embed.set_footer(text=BOT_FOOTER)
-            await interaction.response.send_message(
-                embed=embed, ephemeral=True
-            )
+        if not user.voice or not user.voice.channel:
+            await interaction.response.send_message("❌ Dar voice channel nisti!", ephemeral=True)
             return
 
-        channel = voice_state.channel
-        radio_name = self.values[0]
-        radio_url = RADIOS[radio_name]
+        channel = user.voice.channel
 
-        vc = interaction.guild.voice_client
+        # Disconnect if already connected
+        if interaction.guild.voice_client:
+            await interaction.guild.voice_client.disconnect()
 
-        if vc and vc.is_connected():
-            await vc.disconnect(force=True)
-
-        vc = await channel.connect(self_deaf=True)
-
-        source = discord.FFmpegPCMAudio(
-            radio_url, **FFMPEG_OPTIONS
-        )
+        # Connect and play
+        vc = await channel.connect()
+        source = FFmpegPCMAudio(self.values[0], options="-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5")
         vc.play(source)
 
-        embed.title = "📻 Radio Play Shod"
-        embed.description = (
-            f"**{radio_name}**\n"
-            f"Enjoy kon va vibe begir 🔥"
+        embed = discord.Embed(
+            title="🎧 Now Playing",
+            description=f"{self.values[0]} ro dar voice channel shoru kardim!",
+            color=0x1abc9c
         )
-        embed.set_footer(text=BOT_FOOTER)
+        embed.set_footer(text="made with 🧠&🩷 by apaxray")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
-        await interaction.response.send_message(
-            embed=embed, ephemeral=True
-        )
+        # Auto-leave task
+        async def check_leave():
+            await asyncio.sleep(10)
+            if not vc.channel.members or len([m for m in vc.channel.members if not m.bot]) == 0:
+                await vc.disconnect()
+        bot.loop.create_task(check_leave())
 
-
-class RadioView(discord.ui.View):
+# ===== View =====
+class RadioView(View):
     def __init__(self):
-        super().__init__(timeout=60)
+        super().__init__()
         self.add_item(RadioSelect())
 
-
-class RadioBot(commands.Bot):
-    def __init__(self):
-        super().__init__(
-            command_prefix="!",
-            intents=INTENTS,
-        )
-
-    async def setup_hook(self):
-        await self.tree.sync()
-
-    async def on_ready(self):
-        print(f"✅ Logged in as {self.user}")
-
-    async def on_voice_state_update(
-        self,
-        member: discord.Member,
-        before: discord.VoiceState,
-        after: discord.VoiceState,
-    ):
-        if not member.guild.voice_client:
-            return
-
-        vc = member.guild.voice_client
-        channel = vc.channel
-
-        if not channel:
-            return
-
-        humans = [
-            m
-            for m in channel.members
-            if not m.bot
-        ]
-
-        if humans:
-            return
-
-        await asyncio.sleep(10)
-
-        if not vc.is_connected():
-            return
-
-        channel = vc.channel
-        humans = [
-            m
-            for m in channel.members
-            if not m.bot
-        ]
-
-        if not humans:
-            await vc.disconnect(force=True)
-
-
-bot = RadioBot()
-
-
-@bot.tree.command(
-    name="radio",
-    description="📻 Play radio ba vibe Finglish 😎",
-)
+# ===== Slash command =====
+@tree.command(name="radio", description="Radio ha ro entekhab kon")
 async def radio(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="🎶 Radio Station",
-        description="Ye radio entekhab kon va hal kon ✨",
-        color=0x5865F2,
-    )
-    embed.set_footer(text=BOT_FOOTER)
+    view = RadioView()
+    await interaction.response.send_message("🎶 Radio ha ro entekhab kon:", view=view, ephemeral=True)
 
-    await interaction.response.send_message(
-        embed=embed,
-        view=RadioView(),
-        ephemeral=True,
-    )
+# ===== Events =====
+@bot.event
+async def on_ready():
+    print(f"Bot Online: {bot.user}")
+    await tree.sync()
 
-
+# ===== Run Bot =====
 bot.run(TOKEN)
